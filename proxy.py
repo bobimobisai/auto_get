@@ -1,60 +1,65 @@
-import aiofiles
-import asyncio
-import aiohttp
+import aiofiles, asyncio, aiohttp, json
 from fake_useragent import UserAgent
 
 
-no_valide = "for_proxy/no_valid.txt"
-valid_file = "for_proxy/valid.txt"
-base_proxy = "for_proxy/proxy.txt"
 
-ua = UserAgent()
+base_proxy = "for_proxy/proxy.json"
+valid_file = "for_proxy/valid_proxy.json"
+
+
 url = "https://my.saleads.pro/s/dfqJk"
-headers = {"User-Agent": ua.random}
 
 
-async def get_proxies_from_file(file_path: str) -> tuple:
+def get_headers():
+    ua = UserAgent()
+    yield {"User-Agent": ua.random}
+
+
+async def get_proxies_from_file(file_path: str) -> list:
     try:
         async with aiofiles.open(file_path, mode="r", encoding="utf-8") as file:
-            proxies = []
-            async for line in file:
-                proxies.append(str(line.strip()))
+            content = await file.read()
+            proxies = json.loads(content)
+            return proxies["proxy"]
     except FileNotFoundError:
         print(f"File '{file_path}' not found.")
     except PermissionError:
         print(f"Permission denied to open file '{file_path}'.")
-    else:
-        return tuple(proxies)
 
 
-async def write_proxies_to_file(file_path: str, proxies: tuple):
+async def write_proxies_to_file(file_path: str, proxies):
+    data = {"proxy": proxies}
     async with aiofiles.open(file_path, "w") as file:
-        await file.write(proxies + "\n")
+        await file.write(json.dumps(data, indent=4))
 
 
-async def check_proxies(proxy, url):
-    for prox in proxy:
-        async with aiohttp.ClientSession(headers=headers) as session:
-            try:
-                async with session.get(url, proxy=f"http://{prox}") as response:
-                    if response.status == 200:
-                        print(f"Успешно вошли на сайт через прокси {prox}")
-                        await write_proxies_to_file(
-                            file_path=valid_file, proxies=str(prox)
-                        )
-                    else:
-                        print(
-                            f"Не удалось получить доступ к веб-сайту через прокси {prox}"
-                        )
-                        await write_proxies_to_file(file_path=no_valide, proxies=prox)
-            except aiohttp.ClientError as e:
-                await write_proxies_to_file(file_path=no_valide, proxies=prox)
-                print(f"{prox}: {e}")
+async def check_proxy(proxy, url):
+    headers = next(get_headers())
+    async with aiohttp.ClientSession(headers=headers) as session:
+        try:
+            async with session.get(url, proxy=f"http://{proxy}") as response:
+                if response.status == 200:
+                    print(f"Успешно вошли на сайт через прокси {proxy}")
+                    return proxy, True
+                else:
+                    print(
+                        f"Не удалось получить доступ к веб-сайту через прокси {proxy}"
+                    )
+        except aiohttp.ClientError as e:
+            print(f"Ошибка прокси {proxy}: {e}")
+            return proxy, False
+
+
+async def check_proxies(proxies, url):
+    tasks = [check_proxy(proxy, url) for proxy in proxies]
+    results = await asyncio.gather(*tasks)
+    valid_proxies = [proxy for proxy, success in results if success]
+    await write_proxies_to_file(valid_file, valid_proxies)
 
 
 async def main():
     proxies = await get_proxies_from_file(file_path=base_proxy)
-    await check_proxies(proxy=proxies, url=url)
+    await check_proxies(proxies, url)
 
 
 if __name__ == "__main__":

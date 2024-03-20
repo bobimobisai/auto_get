@@ -33,14 +33,11 @@ async def write_proxies_to_file(file_path: str, proxies: tuple):
 
 
 async def check_proxies(proxy, url):
-    successful_requests = 0
-    failed_requests = 0
     for prox in proxy:
         async with aiohttp.ClientSession(headers=headers) as session:
             try:
                 async with session.get(url, proxy=f"http://{prox}") as response:
                     if response.status == 200:
-                        successful_requests += 1
                         print(f"Успешно вошли на сайт через прокси {prox}")
                         await write_proxies_to_file(
                             file_path=valid_file, proxies=str(prox)
@@ -49,7 +46,6 @@ async def check_proxies(proxy, url):
                         print(
                             f"Не удалось получить доступ к веб-сайту через прокси {prox}"
                         )
-                        failed_requests += 1
                         await write_proxies_to_file(file_path=no_valide, proxies=prox)
             except aiohttp.ClientError as e:
                 await write_proxies_to_file(file_path=no_valide, proxies=prox)
